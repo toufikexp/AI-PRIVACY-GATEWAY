@@ -1,6 +1,26 @@
 # LLM Privacy Gateway
 
-Privacy-preserving proxy between MENA enterprises and cloud LLM providers (OpenAI, Anthropic, Google). OpenAI-compatible API. Detects and substitutes sensitive entities before forwarding; reverses on response. Full architecture in `docs/ARCHITECTURE.md`.
+Privacy-preserving proxy between MENA enterprises and cloud LLM providers (OpenAI, Anthropic, Google). OpenAI-compatible API. Detects and substitutes sensitive entities before forwarding; reverses on response. Full architecture in `docs/ARCHITECTURE.md`; original solution design in `docs/LLM_Privacy_Gateway_Solution_Design_v2.docx`.
+
+## Repository status (read first)
+
+Phase 1 foundation is in place; Phase 2 has not started. What exists today:
+
+- FastAPI proxy with OpenAI-compatible `POST /v1/chat/completions` (`src/proxy/`)
+- Multi-tenant scope (`CustomerContext`, `MissingTenantScopeError`) bound via contextvar at the auth dependency (`src/tenancy/`)
+- Detector A — Algeria Tier-1 structural validators: NIN, NIF, RIB (mod-97 key), phone via libphonenumber (`src/detectors/`)
+- Encrypted in-memory session map with idle-purge sweep (`src/substitution/session_map.py`)
+- Tamper-evident audit writer: hash chain + HMAC + AES-GCM payload, in-memory backend (`src/audit/`)
+- Master-plane telemetry with whitelisted, content-free fields (`src/master_client/telemetry.py`)
+- `tests/unit/` — 48 tests, all green; `mypy -p src` strict-clean; `ruff` clean
+- GitHub Actions CI runs lint + format + typecheck + tests on every PR
+
+What does NOT exist yet (Phase 2+, per `docs/ROADMAP.md`):
+
+- Detector B (mDeBERTa NER) and Detector C (Qwen2.5 via vLLM)
+- pgvector retrieval, merge engine, synthetic substitution generator, reverse substitution
+- PostgreSQL schemas / migrations (audit + rules backends are in-memory only)
+- Dashboard (Jinja2 + HTMX), Redis cache, Docker / docker-compose, master-plane HTTP client
 
 ## Stack
 
@@ -28,12 +48,15 @@ Three-plane: master cloud (commerce only, no customer data), country data plane 
 
 ## Workflow
 
-- Run tests before claiming work is done: `pytest -x --ff`
-- Type check before commit: `mypy src/`
-- Format before commit: `ruff format src/ tests/`
-- Lint before commit: `ruff check src/ tests/`
-- Run a single test by node id during development; full suite is slow with vLLM startup
+- Install dev deps: `pip install -e '.[dev]'`
+- Run tests before claiming work is done: `pytest tests/unit -x --ff`
+- Type check before commit: `mypy -p src` (NOT `mypy src/` — duplicate-module error with src layout)
+- Format before commit: `ruff format src tests`
+- Lint before commit: `ruff check src tests`
+- Run a single test by node id during development; full suite is slow with vLLM startup once Phase 2 lands
 - vLLM is heavy to start; tests that don't need it MUST mock it via `tests/fixtures/llm_mock.py`
+- Run the dev proxy: `uvicorn src.proxy.app:create_app --factory --reload --port 8080`
+- Integration tests (`tests/integration/`, requires PostgreSQL + Redis + mock vLLM) do not exist yet; the `integration` pytest marker is reserved.
 
 ## Hard rules (do not violate)
 
@@ -43,6 +66,7 @@ Three-plane: master cloud (commerce only, no customer data), country data plane 
 4. **Tier 1 rules are immutable from customer-facing APIs.** Customer overrides go through the exception mechanism (`rule_exceptions` table), never by mutating Tier 1 rules.
 5. **Audit log writes are blocking; if the audit DB is unhealthy, requests fail closed.** Zero data loss invariant — never silently drop audit records.
 6. **vLLM detector outputs are span-validated against the original input** before being trusted. Hallucinated spans are dropped.
+7. **No real customer data in test fixtures committed to git.** Use synthetic data only (ROADMAP "Hard rules for every phase" #5). Real data lives in encrypted dev environments only.
 
 ## Project layout
 

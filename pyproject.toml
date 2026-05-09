@@ -1,0 +1,82 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llm-privacy-gateway"
+version = "0.1.0dev0"
+description = "Privacy-preserving proxy between MENA enterprises and cloud LLM providers."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "Tewfik ZERROUG" }]
+license = { text = "Proprietary" }
+dependencies = [
+    "fastapi>=0.115",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.4",
+    "structlog>=24.4",
+    "httpx>=0.27",
+    "uvicorn[standard]>=0.30",
+    "cryptography>=41",
+    "phonenumbers>=8.13",
+    "python-stdnum>=1.20",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.6",
+    "mypy>=1.11",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",      # pycodestyle / pyflakes
+    "I",                # isort
+    "B",                # flake8-bugbear
+    "UP",               # pyupgrade
+    "SIM",              # flake8-simplify
+    "RUF",              # ruff-specific
+]
+ignore = [
+    "E501",   # line length handled by formatter
+    "B008",   # FastAPI uses Depends() in defaults
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B011"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+mypy_path = "src"
+explicit_package_bases = true
+namespace_packages = true
+warn_unreachable = true
+disallow_untyped_decorators = false  # FastAPI route decorators
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["stdnum.*", "phonenumbers.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_decorators = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = ["-ra", "--strict-markers", "--strict-config"]
+markers = [
+    "integration: requires PostgreSQL/Redis/vLLM (skipped by default in unit runs)",
+]
