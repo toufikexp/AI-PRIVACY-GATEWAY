@@ -2,25 +2,27 @@
 
 Privacy-preserving proxy between MENA enterprises and cloud LLM providers (OpenAI, Anthropic, Google). OpenAI-compatible API. Detects and substitutes sensitive entities before forwarding; reverses on response. Full architecture in `docs/ARCHITECTURE.md`; original solution design in `docs/LLM_Privacy_Gateway_Solution_Design_v2.docx`.
 
-## Repository status (read first)
+## Repository status
 
-Phase 1 foundation is in place; Phase 2 has not started. What exists today:
+The full data-plane monolith is implemented:
 
-- FastAPI proxy with OpenAI-compatible `POST /v1/chat/completions` (`src/proxy/`)
-- Multi-tenant scope (`CustomerContext`, `MissingTenantScopeError`) bound via contextvar at the auth dependency (`src/tenancy/`)
-- Detector A — Algeria Tier-1 structural validators: NIN, NIF, RIB (mod-97 key), phone via libphonenumber (`src/detectors/`)
-- Encrypted in-memory session map with idle-purge sweep (`src/substitution/session_map.py`)
-- Tamper-evident audit writer: hash chain + HMAC + AES-GCM payload, in-memory backend (`src/audit/`)
-- Master-plane telemetry with whitelisted, content-free fields (`src/master_client/telemetry.py`)
-- `tests/unit/` — 48 tests, all green; `mypy -p src` strict-clean; `ruff` clean
-- GitHub Actions CI runs lint + format + typecheck + tests on every PR
-
-What does NOT exist yet (Phase 2+, per `docs/ROADMAP.md`):
-
-- Detector B (mDeBERTa NER) and Detector C (Qwen2.5 via vLLM)
-- pgvector retrieval, merge engine, synthetic substitution generator, reverse substitution
-- PostgreSQL schemas / migrations (audit + rules backends are in-memory only)
-- Dashboard (Jinja2 + HTMX), Redis cache, Docker / docker-compose, master-plane HTTP client
+- FastAPI proxy with OpenAI-compatible `POST /v1/chat/completions` and `/v1/completions`
+- Multi-tenant scope (`CustomerContext`, `MissingTenantScopeError`) bound via contextvar at the auth dependency
+- Three-detector ensemble running concurrently:
+  - Detector A — structural validators with country packs (Algeria today; UAE/Saudi/Morocco/Tunisia/Egypt slots ready in `src/detectors/countries/`)
+  - Detector B — multilingual NER, pluggable backend (ONNX runtime when `GATEWAY_NER_BACKEND=onnx`, stub otherwise)
+  - Detector C — vLLM contextual LLM client with RAG retrieval and tier-aware prefix caching, pluggable backend (HTTP when `GATEWAY_VLLM_URL` is set, stub otherwise)
+- pgvector hybrid retrieval over the layered rule base, with an in-memory backend for tests
+- Merge engine: span validation, overlap resolution by length + detector precedence, tier precedence, customer exception application, confidence aggregation, threshold filtering
+- Substitution engine: synthetic value generation per entity type with cultural-context dictionaries, session map with component decomposition (full/first/last/honorific in AR/FR/EN)
+- Reverse substitution pipeline: post-response NER + direct match + component match with contextual disambiguation + novel-entity flagging
+- AES-256-GCM session map with idle-purge sweep
+- Tamper-evident audit writer (hash chain + HMAC + AES-GCM payload), pluggable backend (Postgres when `GATEWAY_AUDIT_DSN` is set, in-memory otherwise)
+- Three-tier rule storage with Tier 1 exceptions; Postgres backend (asyncpg) and in-memory backend
+- Master-plane HTTP client: license validation, plan-flag polling, content-free telemetry pusher
+- Dashboard (Jinja2 + HTMX): live activity, detection statistics, rule management, audit viewer, customer config
+- Docker Compose for local dev (proxy + Postgres + Redis), Dockerfile for production builds
+- GitHub Actions CI runs lint + format + typecheck + unit tests on every PR
 
 ## Stack
 
@@ -53,10 +55,12 @@ Three-plane: master cloud (commerce only, no customer data), country data plane 
 - Type check before commit: `mypy -p src` (NOT `mypy src/` — duplicate-module error with src layout)
 - Format before commit: `ruff format src tests`
 - Lint before commit: `ruff check src tests`
-- Run a single test by node id during development; full suite is slow with vLLM startup once Phase 2 lands
-- vLLM is heavy to start; tests that don't need it MUST mock it via `tests/fixtures/llm_mock.py`
+- Run a single test by node id during development; full suite is slow when the vLLM HTTP backend is enabled — keep `GATEWAY_VLLM_BACKEND=stub` for unit runs
+- vLLM is heavy to start; tests MUST use `GATEWAY_VLLM_BACKEND=stub` (the default in CI) or the `MockLLMClient` in `tests/fixtures/llm_mock.py`
 - Run the dev proxy: `uvicorn src.proxy.app:create_app --factory --reload --port 8080`
-- Integration tests (`tests/integration/`, requires PostgreSQL + Redis + mock vLLM) do not exist yet; the `integration` pytest marker is reserved.
+- Or via Docker: `docker compose up` (proxy on 8080, Postgres on 5432, Redis on 6379)
+- All configuration flows through `src/config/settings.py` (pydantic-settings). Local overrides go in `.env`; copy `.env.example` to start.
+- Integration tests (`tests/integration/`, requires running Postgres + Redis) run with `pytest tests/integration -m integration`.
 
 ## Hard rules (do not violate)
 
@@ -66,7 +70,7 @@ Three-plane: master cloud (commerce only, no customer data), country data plane 
 4. **Tier 1 rules are immutable from customer-facing APIs.** Customer overrides go through the exception mechanism (`rule_exceptions` table), never by mutating Tier 1 rules.
 5. **Audit log writes are blocking; if the audit DB is unhealthy, requests fail closed.** Zero data loss invariant — never silently drop audit records.
 6. **vLLM detector outputs are span-validated against the original input** before being trusted. Hallucinated spans are dropped.
-7. **No real customer data in test fixtures committed to git.** Use synthetic data only (ROADMAP "Hard rules for every phase" #5). Real data lives in encrypted dev environments only.
+7. **No real customer data in test fixtures committed to git.** Use synthetic data only. Real data lives in encrypted dev environments.
 
 ## Project layout
 
@@ -92,7 +96,6 @@ tests/
 docs/
   PRD.md              # what and why
   ARCHITECTURE.md     # condensed architecture reference
-  ROADMAP.md          # phased delivery, verification criteria
 .claude/
   skills/             # load-on-demand domain knowledge
 ```
@@ -101,7 +104,6 @@ docs/
 
 - **What we're building / why:** `@docs/PRD.md`
 - **How it works:** `@docs/ARCHITECTURE.md`
-- **What to build next:** `@docs/ROADMAP.md`
 - **Detection pipeline internals:** invoke `/detection-pipeline` skill
 - **Rule tier model:** invoke `/rule-authority` skill
 - **Multi-tenant isolation:** invoke `/multi-tenant-isolation` skill

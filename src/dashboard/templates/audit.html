@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Audit log</h1>
+<p>Tamper-evident hash chain. Each row's <code>prev_hash</code> equals the previous row's <code>content_hash</code>.</p>
+<table>
+  <thead><tr><th>Record ID</th><th>Event</th><th>Occurred</th><th>Hash</th><th>Prev</th></tr></thead>
+  <tbody>
+    {% for r in records %}
+      <tr>
+        <td><code>{{ r.record_id[:8] }}…</code></td>
+        <td>{{ r.event_type }}</td>
+        <td>{{ r.occurred_at|round(2) }}</td>
+        <td><code style="font-size:11px;">{{ r.content_hash[:12] }}…</code></td>
+        <td><code style="font-size:11px;">{{ r.prev_hash[:12] }}…</code></td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5" style="text-align:center; color:#9ca3af;">empty</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

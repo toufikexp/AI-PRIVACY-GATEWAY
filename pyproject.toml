@@ -20,6 +20,9 @@ dependencies = [
     "cryptography>=41",
     "phonenumbers>=8.13",
     "python-stdnum>=1.20",
+    "jinja2>=3.1",
+    "python-multipart>=0.0.9",
+    "asyncpg>=0.29",
 ]
 
 [project.optional-dependencies]
@@ -28,6 +31,10 @@ dev = [
     "pytest-asyncio>=0.24",
     "ruff>=0.6",
     "mypy>=1.11",
+]
+ner = [
+    "onnxruntime>=1.17",
+    "transformers>=4.40",
 ]
 
 [tool.setuptools.packages.find]
@@ -66,7 +73,7 @@ disallow_untyped_decorators = false  # FastAPI route decorators
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["stdnum.*", "phonenumbers.*"]
+module = ["stdnum.*", "phonenumbers.*", "asyncpg.*", "onnxruntime.*", "transformers.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

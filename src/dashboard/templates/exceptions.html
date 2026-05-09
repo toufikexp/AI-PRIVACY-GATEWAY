@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Tier 1 exceptions</h1>
+<form hx-post="/dashboard/exceptions/add" hx-target="#exceptions-table" hx-swap="outerHTML">
+  <input name="rule_id" placeholder="rule_id (optional)">
+  <input name="entity_type" placeholder="entity_type (optional)">
+  <input name="text_match" placeholder="exact text to suppress (optional)">
+  <input name="note" placeholder="reason / note">
+  <button type="submit">Add exception</button>
+</form>
+{% include "exceptions_table.html" %}
+{% endblock %}

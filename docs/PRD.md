@@ -57,15 +57,15 @@ Original sensitive data never leaves the country boundary. The cloud LLM provide
 ## Out of scope (explicit)
 
 - **Streaming responses** at MVP. Deferred to expansion phase. See `docs/ARCHITECTURE.md` §8.4.
-- **Multi-turn conversation state.** Each request is independent at MVP. Multi-turn substitution mapping is an expansion-phase feature.
+- **Multi-turn conversation state.** Each request is independent at MVP. Multi-turn substitution mapping is a follow-on capability.
 - **Document/PDF processing pipeline.** Text-only at MVP.
 - **Image/multimodal sanitization.** Year 2+.
 - **Broader LLM security** (jailbreak defense, output content moderation, hallucination detection). This is a privacy gateway, not an AI security platform. Customers requiring these can chain dedicated tools via the OpenAI API surface.
 - **Cross-customer detection learning.** Privacy-preserving aggregation across tenants is Year 2+.
 - **Self-serve onboarding.** MVP is white-glove deployment with vendor-led rule curation for the first 90 days.
 
-## Validation gate (before full build)
+## Validation
 
-The 95% accuracy claim is the product's central value proposition. It must be validated on real MENA enterprise data before scaling. The validation experiment is the first activity in the roadmap (`docs/ROADMAP.md` Phase 1).
+The 95% accuracy claim is the product's central value proposition. It must be validated on real MENA enterprise data before scaling. The reference corpus and evaluation methodology are defined in `docs/ARCHITECTURE.md` §4.6; `scripts/eval_corpus.py` runs the eval and is wired into CI on PRs that touch detection.
 
-If measured precision falls below 93% or recall below 92% on the reference corpus, specific detectors must be improved before scaling. The architecture supports this — the validation step is non-negotiable.
+If measured precision falls below 93% or recall below 92% on the reference corpus, specific detectors must be improved before deployment to additional design partners.
