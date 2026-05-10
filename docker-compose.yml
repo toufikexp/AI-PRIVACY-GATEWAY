@@ -1,7 +1,9 @@
-# Local-dev stack: data plane + Postgres + Redis.
-# vLLM is intentionally NOT included — start it separately on a GPU host
-# and point GATEWAY_VLLM_URL at it. With vllm_backend=stub the gateway
-# operates without it.
+# Two-plane local-dev stack:
+#   * country data plane (proxy + Postgres + Redis)
+#   * master cloud plane  (master + master-Postgres)
+#
+# vLLM is intentionally NOT included — start it on a GPU host (see
+# scripts/run_vllm.sh) and set GATEWAY_VLLM_BACKEND=http.
 
 services:
   postgres:
@@ -10,20 +12,47 @@ services:
       POSTGRES_USER: gateway
       POSTGRES_PASSWORD: gateway
       POSTGRES_DB: gateway
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U gateway"]
       interval: 5s
       timeout: 3s
       retries: 10
 
+  master-postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: master
+      POSTGRES_PASSWORD: master
+      POSTGRES_DB: master
+    ports: ["5433:5432"]
+    volumes: [masterpgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U master"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    ports: ["6379:6379"]
+
+  master:
+    build:
+      context: .
+      dockerfile: Dockerfile.master
+    depends_on:
+      master-postgres:
+        condition: service_healthy
+    environment:
+      MASTER_ENVIRONMENT: dev
+      MASTER_POSTGRES_DSN: postgresql://master:master@master-postgres:5432/master
+      MASTER_ADMIN_TOKEN: ${MASTER_ADMIN_TOKEN:-admin-dev-token}
+      MASTER_LICENSE_PRIVATE_KEY_PEM: ${MASTER_LICENSE_PRIVATE_KEY_PEM:-}
+      MASTER_LICENSE_PUBLIC_KEY_PEM: ${MASTER_LICENSE_PUBLIC_KEY_PEM:-}
+      MASTER_LOG_JSON: "false"
+    ports: ["9090:9090"]
 
   proxy:
     build: .
@@ -32,29 +61,28 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+      master:
+        condition: service_started
     environment:
       GATEWAY_ENVIRONMENT: dev
       GATEWAY_COUNTRY_CODE: DZ
-      GATEWAY_RULE_STORE_BACKEND: memory
+      GATEWAY_RULE_STORE_BACKEND: postgres
       GATEWAY_AUDIT_STORE_BACKEND: postgres
+      GATEWAY_CUSTOMER_STORE_BACKEND: postgres
       GATEWAY_POSTGRES_DSN: postgresql://gateway:gateway@postgres:5432/gateway
       GATEWAY_REDIS_URL: redis://redis:6379/0
       GATEWAY_NER_BACKEND: stub
       GATEWAY_VLLM_BACKEND: stub
-      GATEWAY_MASTER_PLANE_MOCK: "true"
+      GATEWAY_MASTER_PLANE_MOCK: "false"
+      GATEWAY_MASTER_PLANE_URL: http://master:9090
       GATEWAY_LOG_JSON: "false"
-      GATEWAY_CUSTOMERS_FILE: /app/dev_customers.json
-      # Generate real values per deployment; these are placeholders.
+      GATEWAY_LICENSE_REQUIRED: "false"
+      GATEWAY_KEY_STORE_BACKEND: env
       GATEWAY_SESSION_MAP_KEY: ${GATEWAY_SESSION_MAP_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
       GATEWAY_AUDIT_ENCRYPTION_KEY: ${GATEWAY_AUDIT_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
       GATEWAY_AUDIT_HMAC_KEY: ${GATEWAY_AUDIT_HMAC_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
-    volumes:
-      # Mount the dev customers seed file at /app/dev_customers.json (read-only).
-      # Create dev_customers.json next to docker-compose.yml; see .env.example
-      # for the schema.
-      - ./dev_customers.json:/app/dev_customers.json:ro
-    ports:
-      - "8080:8080"
+    ports: ["8080:8080"]
 
 volumes:
   pgdata:
+  masterpgdata:

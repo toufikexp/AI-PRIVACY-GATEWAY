@@ -30,6 +30,12 @@ from src.detectors.ner import StubNERDetector
 from src.detectors.structural import StructuralDetector
 from src.merge import MergeConfig, MergeEngine, MergeResult
 from src.merge.engine import ExceptionEntry
+from src.observability import (
+    detection_count,
+    detector_latency,
+    pipeline_latency,
+    requests_total,
+)
 from src.proxy.upstream import UpstreamForwarder
 from src.retrieval import HybridRetriever
 from src.rules.exceptions import RuleExceptionStore
@@ -83,17 +89,28 @@ class Pipeline:
 
         rules: list[RuleSnippet] = await self._d.retriever.retrieve(text=original_text)
 
-        # Detectors run concurrently
+        # Detectors run concurrently with per-detector latency timing.
+        async def _timed(name: str, coro: Any) -> list[Detection]:
+            start = time.monotonic()
+            try:
+                result: list[Detection] = await coro
+                return result
+            finally:
+                detector_latency.labels(detector=name).observe(time.monotonic() - start)
+
         detect_tasks = [
-            self._d.structural.detect(original_text),
-            self._d.ner.detect(original_text),  # type: ignore[attr-defined]
-            self._invoke_contextual(original_text, rules),
+            _timed("structural", self._d.structural.detect(original_text)),
+            _timed("ner", self._d.ner.detect(original_text)),  # type: ignore[attr-defined]
+            _timed("contextual", self._invoke_contextual(original_text, rules)),
         ]
         detector_results = await asyncio.gather(*detect_tasks, return_exceptions=True)
         all_detections: list[Detection] = []
         for r in detector_results:
             if isinstance(r, BaseException):
                 if self._d.settings.default_failure_mode == "strict":
+                    requests_total.labels(
+                        plan=ctx.plan, country=ctx.country_code, outcome="detector_error"
+                    ).inc()
                     raise r
                 log.warning("detector_failed", error=str(r))
                 continue
@@ -140,6 +157,11 @@ class Pipeline:
             )
             final_response = _replace_response_text(upstream_response, reverse.text)
 
+            elapsed = time.monotonic() - t_start
+            pipeline_latency.observe(elapsed)
+            requests_total.labels(plan=ctx.plan, country=ctx.country_code, outcome="ok").inc()
+            for det in merge_result.accepted:
+                detection_count.labels(entity_type=det.entity_type, tier=str(det.tier)).inc()
             self._d.audit.record(
                 request_id=request_id,
                 event_type="request",
@@ -150,7 +172,7 @@ class Pipeline:
                     "exception_suppressed": len(merge_result.exception_suppressed),
                     "span_invalid": len(merge_result.span_invalid),
                     "novel_in_response": len(reverse.novel_entities),
-                    "latency_ms": int((time.monotonic() - t_start) * 1000),
+                    "latency_ms": int(elapsed * 1000),
                 },
             )
             return final_response

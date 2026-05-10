@@ -1,0 +1,36 @@
+# Active-passive HA via keepalived.
+#
+# Two data-plane nodes share a virtual IP (VIP). Active node owns the VIP
+# and serves traffic; passive node is hot-standby. On failure, VRRP
+# transitions the VIP to the standby in <10s.
+#
+# Placement: copy to /etc/keepalived/keepalived.conf on BOTH nodes,
+# adjusting `state`, `priority`, and the network interface.
+
+vrrp_script chk_proxy {
+    script "/usr/bin/curl -fsS http://127.0.0.1:8080/healthz || exit 1"
+    interval 2
+    fall 2
+    rise 2
+}
+
+vrrp_instance VI_GATEWAY {
+    state MASTER          # set to BACKUP on the standby node
+    interface eth0        # adjust per host
+    virtual_router_id 51
+    priority 100          # set to 90 on the standby node
+    advert_int 1
+
+    authentication {
+        auth_type PASS
+        auth_pass change-this-shared-secret
+    }
+
+    virtual_ipaddress {
+        10.0.0.50/24      # VIP for client traffic
+    }
+
+    track_script {
+        chk_proxy
+    }
+}

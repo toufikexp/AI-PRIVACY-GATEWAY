@@ -23,8 +23,9 @@ from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 FailureMode = Literal["strict", "audit_only", "fallback"]
-NERBackend = Literal["stub", "onnx"]
+NERBackend = Literal["stub", "onnx", "transformers"]
 VLLMBackend = Literal["stub", "http"]
+KeyStoreBackend = Literal["env", "vault"]
 RuleStoreBackend = Literal["memory", "postgres"]
 AuditStoreBackend = Literal["memory", "postgres"]
 
@@ -70,6 +71,27 @@ class Settings(BaseSettings):
     ner_backend: NERBackend = "stub"
     ner_model_path: str | None = None  # ONNX file, when ner_backend=onnx
     ner_tokenizer_path: str | None = None
+    # transformers backend — HuggingFace model id or local snapshot path
+    ner_hf_model: str = "Davlan/distilbert-base-multilingual-cased-ner-hrl"
+    ner_aggregation: Literal["simple", "first", "average", "max"] = "simple"
+
+    # ----- Key store -----
+    key_store_backend: KeyStoreBackend = "env"
+    vault_addr: str | None = None
+    vault_token: SecretStr | None = None
+    vault_keys_path: str = "secret/data/llm-privacy-gateway/keys"
+
+    # ----- Customer auth -----
+    customer_store_backend: Literal["memory", "postgres"] = "memory"
+
+    # ----- Licensing -----
+    license_public_key_pem: str | None = None  # PEM contents, multi-line env var
+    license_required: bool = False  # if True, fail startup without a valid license
+    license_token: SecretStr | None = None  # the signed license JWT
+
+    # ----- Observability -----
+    metrics_enabled: bool = True
+    otel_exporter_otlp_endpoint: str | None = None  # e.g. http://otel-collector:4318
 
     # ----- Detector C (contextual LLM via vLLM HTTP) -----
     vllm_backend: VLLMBackend = "stub"

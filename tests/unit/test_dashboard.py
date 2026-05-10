@@ -113,7 +113,7 @@ def test_rules_view_renders_with_seeded_rules(client: TestClient) -> None:
     try:
         import asyncio
 
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             store.upsert_tier3(
                 Rule(
                     rule_id="cust-dash.codename",

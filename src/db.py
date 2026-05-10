@@ -56,14 +56,20 @@ CREATE INDEX IF NOT EXISTS audit_log_tenant_idx ON audit_log (customer_id, creat
 CREATE INDEX IF NOT EXISTS audit_log_chain_idx ON audit_log (created_at);
 
 CREATE TABLE IF NOT EXISTS customer_config (
-    customer_id              text PRIMARY KEY,
-    country_code             text NOT NULL,
-    plan                     text NOT NULL,
-    api_key_hash             text NOT NULL,
-    upstream_provider_key    text NOT NULL,
-    failure_mode             text NOT NULL DEFAULT 'strict',
-    created_at               timestamptz NOT NULL DEFAULT now()
+    customer_id                       text PRIMARY KEY,
+    api_key_prefix                    text NOT NULL,
+    api_key_hash                      bytea NOT NULL,
+    country_code                      text NOT NULL,
+    plan                              text NOT NULL,
+    upstream_provider_key_nonce       bytea NOT NULL,
+    upstream_provider_key_ct          bytea NOT NULL,
+    failure_mode                      text NOT NULL DEFAULT 'strict',
+    enabled                           boolean NOT NULL DEFAULT true,
+    created_at                        timestamptz NOT NULL DEFAULT now(),
+    updated_at                        timestamptz NOT NULL DEFAULT now()
 );
+CREATE INDEX IF NOT EXISTS customer_config_prefix_idx
+    ON customer_config (api_key_prefix);
 """
 
 

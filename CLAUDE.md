@@ -4,25 +4,43 @@ Privacy-preserving proxy between MENA enterprises and cloud LLM providers (OpenA
 
 ## Repository status
 
-The full data-plane monolith is implemented:
+Full federated platform implemented:
 
-- FastAPI proxy with OpenAI-compatible `POST /v1/chat/completions` and `/v1/completions`
+**Master plane** (`src/master_plane/`)
+- Separate FastAPI service on port 9090 with its own Postgres
+- Admin API for customer onboarding + license issuance (`POST /admin/customers`, `POST /admin/licenses`)
+- Data-plane facing API: `GET /v1/plans/{cid}`, `GET /v1/license/public-key`, `POST /v1/telemetry`
+- RSA-PSS license signing (`src/licensing.py`); offline-validatable on the data plane
+- Admin CLI: `python -m src.master_plane.admin keygen|create-customer|issue-license|init-db`
+
+**Country data plane**
+- FastAPI proxy with OpenAI-compatible `POST /v1/chat/completions`
 - Multi-tenant scope (`CustomerContext`, `MissingTenantScopeError`) bound via contextvar at the auth dependency
 - Three-detector ensemble running concurrently:
-  - Detector A — structural validators with country packs (Algeria today; UAE/Saudi/Morocco/Tunisia/Egypt slots ready in `src/detectors/countries/`)
-  - Detector B — multilingual NER, pluggable backend (ONNX runtime when `GATEWAY_NER_BACKEND=onnx`, stub otherwise)
-  - Detector C — vLLM contextual LLM client with RAG retrieval and tier-aware prefix caching, pluggable backend (HTTP when `GATEWAY_VLLM_URL` is set, stub otherwise)
-- pgvector hybrid retrieval over the layered rule base, with an in-memory backend for tests
-- Merge engine: span validation, overlap resolution by length + detector precedence, tier precedence, customer exception application, confidence aggregation, threshold filtering
-- Substitution engine: synthetic value generation per entity type with cultural-context dictionaries, session map with component decomposition (full/first/last/honorific in AR/FR/EN)
-- Reverse substitution pipeline: post-response NER + direct match + component match with contextual disambiguation + novel-entity flagging
+  - Detector A — structural validators with full Algeria pack (NIN, NIF, NIS, NSS, RIB, RIP, IBAN-DZ, card/Luhn, passport, driving licence, vehicle plate, CHIFA, phone, email, IP)
+  - Detector B — multilingual NER, three pluggable backends: `transformers` (default mDeBERTa-style multilingual), `onnx`, `stub`
+  - Detector C — vLLM contextual LLM client with RAG + tier-aware prefix caching; HTTP backend when `GATEWAY_VLLM_URL` is set
+- pgvector hybrid retrieval over the layered rule base
+- Merge engine: span validation, overlap resolution, tier precedence, exceptions, confidence aggregation, thresholds
+- Substitution engine: synthetic generation, component decomposition (AR/FR/EN), reverse substitution with post-response NER and disambiguation
 - AES-256-GCM session map with idle-purge sweep
-- Tamper-evident audit writer (hash chain + HMAC + AES-GCM payload), pluggable backend (Postgres when `GATEWAY_AUDIT_DSN` is set, in-memory otherwise)
-- Three-tier rule storage with Tier 1 exceptions; Postgres backend (asyncpg) and in-memory backend
-- Master-plane HTTP client: license validation, plan-flag polling, content-free telemetry pusher
-- Dashboard (Jinja2 + HTMX): live activity, detection statistics, rule management, audit viewer, customer config
-- Docker Compose for local dev (proxy + Postgres + Redis), Dockerfile for production builds
-- GitHub Actions CI runs lint + format + typecheck + unit tests on every PR
+- Tamper-evident audit writer (hash chain + HMAC + AES-GCM); Postgres or in-memory backend
+- Three-tier rule storage with Tier 1 exception mechanism
+- Plan-tier capability matrix (`src/plans.py`)
+- Customer auth: bcrypt-hashed API keys in Postgres + AES-GCM-encrypted upstream provider keys; admin CLI: `python -m src.proxy.customer_admin create|rotate|disable`
+- Crypto key resolution: env vars or HashiCorp Vault KV v2 (`GATEWAY_KEY_STORE_BACKEND`)
+- Prometheus `/metrics` (request rate by plan/country/outcome, per-detector latency histograms, pipeline latency, detection counts)
+- OpenTelemetry tracing when `GATEWAY_OTEL_EXPORTER_OTLP_ENDPOINT` is set
+- License gate at startup (`GATEWAY_LICENSE_REQUIRED=true` fails closed)
+- Reference corpus eval harness: `scripts/build_synthetic_corpus.py` + `scripts/eval_corpus.py`
+- Dashboard (Jinja2 + HTMX): activity, rules, exceptions (HTMX add), audit viewer
+
+**Operations**
+- Two-plane `docker-compose.yml` (data plane + master plane + two Postgres + Redis)
+- `Dockerfile` and `Dockerfile.master`
+- `scripts/run_vllm.sh` for self-hosted Detector C on a GPU host
+- `deploy/keepalived.conf.example` for active-passive HA
+- GitHub Actions CI runs lint + format + typecheck + 150 unit tests on every PR
 
 ## Stack
 

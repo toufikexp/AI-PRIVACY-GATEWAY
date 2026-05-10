@@ -5,96 +5,160 @@ Privacy-preserving proxy between MENA enterprises and cloud LLM providers
 substitutes sensitive entities before forwarding, reverses on response.
 Original data never leaves the country boundary.
 
+Architecture: **federated** — a country **data plane** processes traffic
+in-country, a **master cloud plane** handles SaaS commerce (customer
+accounts, plan flags, license issuance, content-free telemetry).
+
 See [`docs/PRD.md`](docs/PRD.md) and
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design.
 
+---
+
 ## What's in the box
 
-- **OpenAI-compatible** `POST /v1/chat/completions` proxy (FastAPI)
+### Country data plane (`src/proxy/`, `src/detectors/`, `src/audit/`, ...)
+
+- **OpenAI-compatible API** at `POST /v1/chat/completions`
 - **Three-detector ensemble** running concurrently:
-  - Detector A — structural validators (Algeria pack today: NIN/NIF/RIB/phone)
-  - Detector B — multilingual NER (mDeBERTa ONNX backend; pure-Python stub for dev)
-  - Detector C — contextual LLM (vLLM HTTP backend; pure-Python stub for dev)
-- **pgvector hybrid retrieval** over a layered, three-tier rule base
-- **Merge engine** with span validation, tier precedence, customer exceptions, threshold filtering
-- **Synthetic substitution** (not placeholders) with component decomposition for robust reverse
-- **AES-256-GCM session map** purged on response or 30-min idle
-- **Tamper-evident audit log** (hash chain + HMAC + AES-GCM payloads); Postgres or in-memory backend
-- **Dashboard** (Jinja2 + HTMX): activity, rules, exceptions, audit
-- **Master-plane client** with content-free telemetry whitelist
-- **Docker compose** stack (proxy + Postgres + Redis); single binary via `docker build`
+  - **Detector A** — structural Algeria pack: NIN, NIF, NIS, NSS, RIB, RIP, IBAN-DZ, Luhn cards, passport, driving licence, vehicle plate, CHIFA, phone, email, IP
+  - **Detector B** — multilingual NER. Pluggable: `stub` (dev) / `onnx` / `transformers` (HuggingFace, default `Davlan/distilbert-base-multilingual-cased-ner-hrl`)
+  - **Detector C** — vLLM contextual LLM with RAG + tier-aware prefix caching. Pluggable: `stub` / `http`
+- **pgvector hybrid retrieval** over the three-tier rule base
+- **Merge engine** with span validation, exception suppression, confidence aggregation, tier precedence
+- **Synthetic substitution** with component decomposition (AR/FR/EN honorifics) for robust reverse substitution
+- **AES-256-GCM session map**, idle-purge sweep
+- **Tamper-evident audit** (hash chain + HMAC + AES-GCM payload), Postgres or in-memory
+- **Postgres-backed customer auth** with bcrypt-hashed keys + AES-GCM encryption of upstream provider keys
+- **Plan-tier enforcement** (`src/plans.py`)
+- **Crypto key resolution** from env or HashiCorp Vault KV v2
+- **Prometheus `/metrics`** + optional OpenTelemetry tracing
+- **License gate** at startup (`GATEWAY_LICENSE_REQUIRED=true` fails closed)
+- **Dashboard** (Jinja2 + HTMX) at `/dashboard/`: activity, rules, exceptions, audit
+
+### Master cloud plane (`src/master_plane/`)
+
+- Customer onboarding and plan management
+- RSA-signed offline license issuance (Sovereign tier)
+- Plan-flag polling endpoint for data planes
+- Content-free telemetry intake
+- Admin CLI: `python -m src.master_plane.admin {keygen|create-customer|issue-license|init-db}`
+
+### Operations
+
+- Two-plane `docker-compose.yml` (data + master + two Postgres + Redis)
+- `Dockerfile` (data plane) and `Dockerfile.master` (master plane)
+- `scripts/run_vllm.sh` — self-host Detector C on a GPU host
+- `scripts/eval_corpus.py` + `scripts/build_synthetic_corpus.py` — reference-corpus eval harness
+- `deploy/keepalived.conf.example` — active-passive HA
+- GitHub Actions CI: ruff + ruff format + mypy strict + 150 unit tests
+
+---
 
 ## Configuration
 
-All configuration is environment-driven via [pydantic-settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/).
-Copy [`.env.example`](.env.example) to `.env` for a development run; every
-setting has the prefix `GATEWAY_`.
+All settings flow through [pydantic-settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/).
+Copy [`.env.example`](.env.example) to `.env`. Every variable is prefixed
+`GATEWAY_` (data plane) or `MASTER_` (master plane).
 
-Backend choice for heavy components is a toggle:
+Key backend toggles:
 
 | Setting | Values | Notes |
 |---|---|---|
-| `GATEWAY_NER_BACKEND` | `stub` (default) / `onnx` | `onnx` requires `pip install -e '.[ner]'` and the model paths |
-| `GATEWAY_VLLM_BACKEND` | `stub` (default) / `http` | `http` requires `GATEWAY_VLLM_URL` |
-| `GATEWAY_AUDIT_STORE_BACKEND` | `memory` (default) / `postgres` | `postgres` requires `GATEWAY_POSTGRES_DSN` |
-| `GATEWAY_RULE_STORE_BACKEND` | `memory` (default) / `postgres` | (Postgres backend ships in `src/rules/postgres_backend.py`) |
-| `GATEWAY_MASTER_PLANE_MOCK` | `true` (default) / `false` | `false` requires `GATEWAY_MASTER_PLANE_URL` |
+| `GATEWAY_NER_BACKEND` | `stub` (default) / `transformers` / `onnx` | `transformers`/`onnx` need `pip install -e '.[ner]'` |
+| `GATEWAY_VLLM_BACKEND` | `stub` (default) / `http` | `http` needs `GATEWAY_VLLM_URL` |
+| `GATEWAY_KEY_STORE_BACKEND` | `env` (default) / `vault` | `vault` needs `GATEWAY_VAULT_ADDR` + `GATEWAY_VAULT_TOKEN` |
+| `GATEWAY_AUDIT_STORE_BACKEND` | `memory` (default) / `postgres` | `postgres` needs `GATEWAY_POSTGRES_DSN` |
+| `GATEWAY_RULE_STORE_BACKEND` | `memory` / `postgres` | same DSN |
+| `GATEWAY_CUSTOMER_STORE_BACKEND` | `memory` / `postgres` | same DSN |
+| `GATEWAY_MASTER_PLANE_MOCK` | `true` (default) / `false` | `false` needs `GATEWAY_MASTER_PLANE_URL` |
+| `GATEWAY_LICENSE_REQUIRED` | `false` (default) / `true` | `true` fails startup without a valid signed token |
 | `GATEWAY_DEFAULT_FAILURE_MODE` | `strict` / `audit_only` / `fallback` | per ARCHITECTURE §6.2 |
 
-Crypto keys (`GATEWAY_SESSION_MAP_KEY`, `GATEWAY_AUDIT_ENCRYPTION_KEY`,
-`GATEWAY_AUDIT_HMAC_KEY`) are 32-byte hex strings. The all-zero defaults
-are a deliberately useless placeholder so a missing key in production
-surfaces immediately. Real deployments load keys from a sealed file,
-HashiCorp Vault, or HSM (PKCS#11) per the audit-and-security skill.
+---
 
-## Run locally
-
-```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -e '.[dev]'
-cp .env.example .env
-
-# Generate real keys for dev
-python -c "import os;print('GATEWAY_SESSION_MAP_KEY='+os.urandom(32).hex())" >> .env
-python -c "import os;print('GATEWAY_AUDIT_ENCRYPTION_KEY='+os.urandom(32).hex())" >> .env
-python -c "import os;print('GATEWAY_AUDIT_HMAC_KEY='+os.urandom(32).hex())" >> .env
-
-uvicorn src.proxy.app:create_app --factory --reload --port 8080
-```
-
-Or via Docker:
+## Run the full stack
 
 ```bash
 docker compose up --build
 ```
 
-## Test
+Services come up:
+- `master`   on http://localhost:9090
+- `proxy`    on http://localhost:8080
+- `postgres` (data plane) on 5432
+- `master-postgres` on 5433
+- `redis` on 6379
+
+Onboard a customer via the master plane admin API:
 
 ```bash
-pytest tests/unit -x       # 74 tests
-ruff check src tests
-ruff format --check src tests
+# Generate license keys (one time)
+python -m src.master_plane.admin keygen --out ./keys/master
+
+# Create a customer
+python -m src.master_plane.admin create-customer \
+  --master-url http://localhost:9090 \
+  --id cust-acme --company "Acme Bank" --country DZ --plan enterprise
+
+# Issue a license (used by the data plane on startup if GATEWAY_LICENSE_REQUIRED=true)
+python -m src.master_plane.admin issue-license \
+  --master-url http://localhost:9090 \
+  --id cust-acme --days 365
+```
+
+Provision a customer API key on the data plane (bcrypt-hashed in Postgres,
+upstream LLM key encrypted at rest):
+
+```bash
+docker compose exec proxy python -m src.proxy.customer_admin create \
+  --customer cust-acme \
+  --country DZ \
+  --plan enterprise \
+  --upstream-key sk-proj-YOUR-OPENAI-KEY
+# Prints the gateway API key once. Store it; it is not retrievable later.
+```
+
+Then call the gateway:
+
+```bash
+curl http://localhost:8080/v1/chat/completions \
+  -H "Authorization: Bearer sk-XXX-from-customer-admin-create" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Mon RIB est 00400123456789012375"}]}'
+```
+
+---
+
+## Run for development (no Docker)
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -e '.[dev]'
+
+pytest tests/unit -x       # 150 tests
+ruff check src tests scripts
+ruff format --check src tests scripts
 mypy -p src
+
+uvicorn src.proxy.app:create_app   --factory --reload --port 8080  # data plane
+uvicorn src.master_plane.app:create_app --factory --reload --port 9090  # master plane
 ```
 
-Continuous integration runs the same gates on every PR — see
-`.github/workflows/ci.yml`.
+---
 
-## Try it
+## Self-host Detector C (vLLM + GPU)
 
 ```bash
-# Health
-curl -s localhost:8080/healthz
-
-# Chat (you must register an API key first; see tests/unit/test_proxy_endpoint.py
-# for the seed pattern, or wire the customer directory to Postgres in production).
-curl -s localhost:8080/v1/chat/completions \
-  -H "Authorization: Bearer sk-test-1" -H "Content-Type: application/json" \
-  -d '{"model":"gpt-4o","messages":[{"role":"user","content":"Mon RIB est 00400123456789012375"}]}'
-
-# Dashboard (same Bearer token)
-curl -s localhost:8080/dashboard/ -H "Authorization: Bearer sk-test-1"
+./scripts/run_vllm.sh   # spins up vLLM serving Qwen2.5-7B-AWQ
+# then on the proxy:
+export GATEWAY_VLLM_BACKEND=http
+export GATEWAY_VLLM_URL=http://localhost:8000/v1
 ```
+
+Without a GPU, leave `GATEWAY_VLLM_BACKEND=stub`. Detector A + B remain
+fully active.
+
+---
 
 ## Layout
 

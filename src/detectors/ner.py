@@ -189,10 +189,104 @@ def _merge_overlapping(spans: list[_Span]) -> list[_Span]:
     return out
 
 
-def make_detector(*, backend: str, model_path: str | None, tokenizer_path: str | None) -> object:
+class TransformersNERDetector:
+    """Real HuggingFace `transformers` NER pipeline.
+
+    Loads any multilingual NER model — default is
+    `Davlan/distilbert-base-multilingual-cased-ner-hrl` (PER/LOC/ORG, Arabic +
+    French + English among many). Supports any token-classification model
+    that returns IOB2 / IOB1 tags. Heavy import path; gated behind
+    `GATEWAY_NER_BACKEND=transformers`.
+    """
+
+    name = DETECTOR_NAME
+
+    def __init__(self, *, hf_model: str, aggregation: str = "simple") -> None:
+        try:
+            from transformers import (
+                AutoModelForTokenClassification,
+                AutoTokenizer,
+                pipeline,
+            )
+        except ImportError as exc:  # pragma: no cover
+            raise RuntimeError(
+                "TransformersNERDetector requires `transformers` and `torch`; "
+                "install them with `pip install -e '.[ner]'`"
+            ) from exc
+
+        tok = AutoTokenizer.from_pretrained(hf_model)
+        mdl = AutoModelForTokenClassification.from_pretrained(hf_model)
+        self._pipeline = pipeline(
+            "token-classification",
+            model=mdl,
+            tokenizer=tok,
+            aggregation_strategy=aggregation,
+        )
+
+    async def detect(self, text: str) -> list[Detection]:
+        require_customer()
+        # Pipeline is sync (PyTorch). Run it in a worker thread so we don't
+        # block the event loop.
+        import asyncio
+
+        loop = asyncio.get_running_loop()
+        raw = await loop.run_in_executor(None, self._pipeline, text)
+
+        out: list[Detection] = []
+        for item in raw:
+            label = str(item.get("entity_group") or item.get("entity") or "").upper()
+            entity_type = _hf_label_to_entity_type(label)
+            if entity_type is None:
+                continue
+            start = int(item["start"])
+            end = int(item["end"])
+            score = float(item.get("score", 0.7))
+            out.append(
+                Detection(
+                    entity_type=entity_type,
+                    start=start,
+                    end=end,
+                    text=text[start:end],
+                    confidence=min(0.99, score),
+                    tier=2,
+                    detector=DETECTOR_NAME,
+                    rule_id=f"ner.hf.{entity_type}",
+                )
+            )
+        return out
+
+
+def _hf_label_to_entity_type(label: str) -> EntityType | None:
+    # IOB-style tags often look like "B-PER" / "I-LOC". Split on '-'.
+    bare = label.split("-")[-1]
+    if bare in {"PER", "PERSON"}:
+        return "person"
+    if bare in {"LOC", "GPE", "LOCATION"}:
+        return "location"
+    if bare in {"ORG", "ORGANIZATION"}:
+        return "organization"
+    if bare in {"DATE", "TIME"}:
+        return "date"
+    if bare in {"MONEY"}:
+        return "monetary"
+    return None
+
+
+def make_detector(
+    *,
+    backend: str,
+    model_path: str | None = None,
+    tokenizer_path: str | None = None,
+    hf_model: str | None = None,
+    aggregation: str = "simple",
+) -> object:
     """Construct the configured NER detector. Called by app.py at startup."""
     if backend == "onnx":
         if not model_path or not tokenizer_path:
             raise ValueError("ner_backend=onnx requires ner_model_path and ner_tokenizer_path")
         return OnnxNERDetector(model_path=model_path, tokenizer_path=tokenizer_path)
+    if backend == "transformers":
+        if not hf_model:
+            raise ValueError("ner_backend=transformers requires ner_hf_model")
+        return TransformersNERDetector(hf_model=hf_model, aggregation=aggregation)
     return StubNERDetector()

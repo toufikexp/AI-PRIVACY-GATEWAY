@@ -10,8 +10,14 @@ Tier = Literal[1, 2, 3]
 EntityType = Literal[
     "national_id",  # NIN, Iqama, Emirates ID, etc.
     "tax_id",  # NIF, VAT, etc.
-    "bank_account",  # IBAN, RIB
+    "social_security",  # NSS, NSF, etc.
+    "bank_account",  # IBAN, RIB, RIP
     "card_number",  # PAN (Luhn-validated)
+    "passport",
+    "driving_licence",
+    "vehicle_plate",
+    "healthcare_id",  # carte chifa, etc.
+    "professional_licence",  # avocat, médecin, expert
     "phone",
     "email",
     "person",
@@ -19,6 +25,7 @@ EntityType = Literal[
     "location",
     "date",
     "monetary",
+    "ip_address",
     "custom",  # Tier 3 customer-defined
 ]
 
