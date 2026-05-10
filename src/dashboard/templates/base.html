@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{% block title %}LLM Privacy Gateway{% endblock %}</title>
+  <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; padding: 0; background: #f5f6f8; color: #1f2937; }
+    header { background: #0f172a; color: #fff; padding: 12px 24px; display: flex; align-items: center; gap: 24px; }
+    header a { color: #cbd5e1; text-decoration: none; font-size: 14px; }
+    header a:hover { color: #fff; }
+    main { max-width: 1100px; margin: 24px auto; padding: 0 24px; }
+    h1 { font-size: 22px; margin: 0 0 16px; }
+    table { width: 100%; border-collapse: collapse; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.04); border-radius: 8px; overflow: hidden; }
+    th, td { padding: 10px 14px; border-bottom: 1px solid #e5e7eb; text-align: left; font-size: 14px; }
+    th { background: #f9fafb; font-weight: 600; color: #374151; }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 600; }
+    .tier1 { background: #fee2e2; color: #991b1b; }
+    .tier2 { background: #fef3c7; color: #92400e; }
+    .tier3 { background: #d1fae5; color: #065f46; }
+    form { background: #fff; padding: 16px; border-radius: 8px; margin-bottom: 16px; }
+    input, select { padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 6px; margin-right: 8px; font-size: 14px; }
+    button { background: #0f172a; color: #fff; padding: 6px 14px; border: 0; border-radius: 6px; cursor: pointer; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>LLM Privacy Gateway</strong>
+    <a href="/dashboard/">Overview</a>
+    <a href="/dashboard/activity">Activity</a>
+    <a href="/dashboard/rules">Rules</a>
+    <a href="/dashboard/exceptions">Exceptions</a>
+    <a href="/dashboard/audit">Audit</a>
+    {% if customer %}<span style="margin-left:auto; font-size:13px; color:#94a3b8;">{{ customer.customer_id }} ({{ customer.plan }}, {{ customer.country_code }})</span>{% endif %}
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

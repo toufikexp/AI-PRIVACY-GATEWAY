@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Overview</h1>
+<p>Welcome, <strong>{{ customer.customer_id }}</strong>. Your data plane is operating in <strong>{{ customer.country_code }}</strong> on the <strong>{{ customer.plan }}</strong> plan.</p>
+<p>Use the navigation above to inspect activity, rules, exceptions, and the audit log.</p>
+{% endblock %}

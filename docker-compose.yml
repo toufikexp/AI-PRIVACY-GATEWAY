@@ -1,0 +1,54 @@
+# Local-dev stack: data plane + Postgres + Redis.
+# vLLM is intentionally NOT included — start it separately on a GPU host
+# and point GATEWAY_VLLM_URL at it. With vllm_backend=stub the gateway
+# operates without it.
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: gateway
+      POSTGRES_PASSWORD: gateway
+      POSTGRES_DB: gateway
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gateway"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  proxy:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      GATEWAY_ENVIRONMENT: dev
+      GATEWAY_COUNTRY_CODE: DZ
+      GATEWAY_RULE_STORE_BACKEND: memory
+      GATEWAY_AUDIT_STORE_BACKEND: postgres
+      GATEWAY_POSTGRES_DSN: postgresql://gateway:gateway@postgres:5432/gateway
+      GATEWAY_REDIS_URL: redis://redis:6379/0
+      GATEWAY_NER_BACKEND: stub
+      GATEWAY_VLLM_BACKEND: stub
+      GATEWAY_MASTER_PLANE_MOCK: "true"
+      GATEWAY_LOG_JSON: "false"
+      # Generate real values per deployment; these are placeholders.
+      GATEWAY_SESSION_MAP_KEY: ${GATEWAY_SESSION_MAP_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
+      GATEWAY_AUDIT_ENCRYPTION_KEY: ${GATEWAY_AUDIT_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
+      GATEWAY_AUDIT_HMAC_KEY: ${GATEWAY_AUDIT_HMAC_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
+    ports:
+      - "8080:8080"
+
+volumes:
+  pgdata:

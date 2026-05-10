@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Rule catalogue</h1>
+{% for tier, label in [(1, 'Tier 1 — country (immutable)'), (2, 'Tier 2 — industry'), (3, 'Tier 3 — customer')] %}
+<h2>{{ label }}</h2>
+<table>
+  <thead><tr><th>Rule ID</th><th>Entity</th><th>Description</th><th>Enabled</th></tr></thead>
+  <tbody>
+    {% for r in by_tier[tier] %}
+      <tr>
+        <td><code>{{ r.rule_id }}</code></td>
+        <td><span class="pill tier{{ tier }}">{{ r.entity_type }}</span></td>
+        <td>{{ r.description }}</td>
+        <td>{{ 'yes' if r.enabled else 'no' }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="4" style="text-align:center; color:#9ca3af;">no rules in this tier</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endfor %}
+{% endblock %}

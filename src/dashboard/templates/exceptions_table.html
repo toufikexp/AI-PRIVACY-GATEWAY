@@ -1,0 +1,14 @@
+<table id="exceptions-table">
+  <thead><tr><th>Rule ID</th><th>Entity type</th><th>Text match</th></tr></thead>
+  <tbody>
+    {% for e in exceptions %}
+      <tr>
+        <td>{{ e.rule_id or '—' }}</td>
+        <td>{{ e.entity_type or '—' }}</td>
+        <td>{{ e.text_match or '—' }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="3" style="text-align:center; color:#9ca3af;">no exceptions defined</td></tr>
+    {% endfor %}
+  </tbody>
+</table>

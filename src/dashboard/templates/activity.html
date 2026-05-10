@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Recent activity</h1>
+<table>
+  <thead><tr><th>Request ID</th><th>Event</th><th>Occurred at</th><th>Content hash</th></tr></thead>
+  <tbody>
+    {% for r in records %}
+      <tr>
+        <td><code>{{ r.request_id }}</code></td>
+        <td>{{ r.event_type }}</td>
+        <td>{{ r.occurred_at|round(2) }}</td>
+        <td><code style="font-size:11px;">{{ r.content_hash[:16] }}…</code></td>
+      </tr>
+    {% else %}
+      <tr><td colspan="4" style="text-align:center; color:#9ca3af;">no activity yet</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
