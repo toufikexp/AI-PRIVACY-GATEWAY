@@ -28,6 +28,7 @@ htmlcov/
 
 # Dev artifacts
 dev_plan_flags.json
+dev_customers.json
 *.log
 audit_chain_state.json
 session_maps/

@@ -1,0 +1,9 @@
+[
+  {
+    "api_key": "sk-dev-1",
+    "customer_id": "cust-dev",
+    "country_code": "DZ",
+    "plan": "enterprise",
+    "upstream_provider_key": "REPLACE_WITH_REAL_OPENAI_KEY"
+  }
+]

@@ -173,6 +173,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(openai_router)
     app.include_router(dashboard_router, prefix="/dashboard")
 
+    # Seed the in-memory customer directory from GATEWAY_CUSTOMERS_FILE /
+    # GATEWAY_CUSTOMERS_JSON. Production uses customer_config in Postgres
+    # — this is the single-process / dev / sovereign-offline path.
+    from src.proxy.auth import get_directory
+    from src.proxy.customer_seed import seed_directory
+
+    seed_directory(get_directory())
+
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
         return {"status": "ok", "version": app.version}
